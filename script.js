@@ -4,7 +4,7 @@ document.addEventListener('DOMContentLoaded', () => {
             this.config = {
                 AUTO_CAPTURE_INTERVAL: 500,
                 MAX_CAPTURE_TIMEOUT: 30000,
-                ERROR_MESSAGE_TIMEOUT: 5000,
+                ERROR_MESSAGE_TIMEOUT: 8000, // Extended to 8 seconds
                 FACE_AUTO_CAPTURE_DELAY: 1500,
                 LIVENESS_ACTION_DURATION: 2000,
                 LIVENESS_COOLDOWN_DURATION: 1000,
@@ -14,6 +14,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 CARD_DETECTION_THRESHOLD: 0.05,
                 CARD_SIZE_MIN_PERCENT: 0.4,
                 CARD_SIZE_MAX_PERCENT: 0.8,
+                OCR_CONFIDENCE_THRESHOLD: 20, // Lowered threshold
+                CAMERA_TIMEOUT: 10000, // 10 second timeout for camera initialization
             };
             this.initLanguage();
             this.cacheDOMElements();
@@ -453,7 +455,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
-        // Camera Management
+        // Enhanced Camera Management with proper error handling and stream cleanup
         async startCapture() {
             this.showView('captureView');
             this.state.captureStep = 'front';
@@ -465,30 +467,58 @@ document.addEventListener('DOMContentLoaded', () => {
                 await this.initCamera();
             } catch (error) {
                 console.error('Camera initialization failed:', error);
-                this.showError(this.languages[this.currentLang].error_capture_timeout);
+                this.showError('Không thể khởi tạo camera. Vui lòng kiểm tra quyền truy cập camera và thử lại.');
             }
         }
 
         async initCamera() {
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({
-                    video: {
-                        width: { ideal: 1280 },
-                        height: { ideal: 720 },
-                        facingMode: 'environment'
-                    }
-                });
+                // Stop existing stream if any
+                if (this.state.cameraStream) {
+                    this.state.cameraStream.getTracks().forEach(track => track.stop());
+                    this.state.cameraStream = null;
+                }
 
+                const constraints = {
+                    video: {
+                        width: { ideal: 1280, min: 640 },
+                        height: { ideal: 720, min: 480 },
+                        facingMode: 'environment',
+                        focusMode: 'continuous'
+                    }
+                };
+
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
                 this.state.cameraStream = stream;
+                
                 if (this.dom.cameraVideo) {
                     this.dom.cameraVideo.srcObject = stream;
-                    await this.dom.cameraVideo.play();
+                    
+                    // Wait for video to be ready with timeout
+                    await new Promise((resolve, reject) => {
+                        const timeout = setTimeout(() => {
+                            reject(new Error('Camera timeout - please check your camera permissions'));
+                        }, this.config.CAMERA_TIMEOUT);
+
+                        this.dom.cameraVideo.onloadedmetadata = () => {
+                            clearTimeout(timeout);
+                            this.dom.cameraVideo.play()
+                                .then(resolve)
+                                .catch(reject);
+                        };
+                    });
                 }
 
                 this.startDocumentDetection();
             } catch (error) {
                 console.error('Camera access failed:', error);
-                throw error;
+                if (error.name === 'NotAllowedError') {
+                    throw new Error('Quyền truy cập camera bị từ chối. Vui lòng cho phép truy cập camera và tải lại trang.');
+                } else if (error.name === 'NotFoundError') {
+                    throw new Error('Không tìm thấy camera. Vui lòng kiểm tra thiết bị camera của bạn.');
+                } else {
+                    throw new Error('Lỗi camera: ' + error.message);
+                }
             }
         }
 
@@ -553,25 +583,40 @@ document.addEventListener('DOMContentLoaded', () => {
                 const canvas = this.dom.cameraCanvas;
                 const video = this.dom.cameraVideo;
                 
-                if (canvas && video) {
-                    const ctx = canvas.getContext('2d');
-                    canvas.width = video.videoWidth;
-                    canvas.height = video.videoHeight;
-                    ctx.drawImage(video, 0, 0);
-                    
-                    const imageData = canvas.toDataURL('image/jpeg', 0.8);
-                    this.state.capturedImages[this.state.captureStep] = imageData;
-
-                    this.dom.cameraFrame?.classList.add('blink-once');
-                    setTimeout(() => {
-                        this.dom.cameraFrame?.classList.remove('blink-once');
-                    }, 500);
-
-                    await this.processImage(imageData);
+                if (!canvas || !video) {
+                    throw new Error('Canvas hoặc video element không tồn tại');
                 }
+
+                // Validate video is ready
+                if (video.videoWidth === 0 || video.videoHeight === 0) {
+                    throw new Error('Camera chưa sẵn sàng. Vui lòng đợi camera khởi tạo.');
+                }
+
+                const ctx = canvas.getContext('2d');
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                
+                // Higher quality image capture
+                const imageData = canvas.toDataURL('image/jpeg', 0.95);
+                
+                // Validate image data
+                if (!imageData || imageData === 'data:,') {
+                    throw new Error('Không thể chụp ảnh. Vui lòng thử lại.');
+                }
+                
+                this.state.capturedImages[this.state.captureStep] = imageData;
+
+                // Visual feedback
+                this.dom.cameraFrame?.classList.add('blink-once');
+                setTimeout(() => {
+                    this.dom.cameraFrame?.classList.remove('blink-once');
+                }, 500);
+
+                await this.processImage(imageData);
             } catch (error) {
                 console.error('Capture failed:', error);
-                this.showError(this.languages[this.currentLang].error_capture_timeout);
+                this.showError('Lỗi chụp ảnh: ' + error.message);
             } finally {
                 this.state.isCapturing = false;
             }
@@ -611,7 +656,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
-        // Extract information from document image
+        // Enhanced OCR extraction with better error handling and preprocessing
         async extractInfoFromImage(imageData) {
             this.showLoading('Đang trích xuất thông tin từ giấy tờ...');
             try {
@@ -621,112 +666,285 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
 
                 if (this.state.ocrWorker) {
+                    // Preprocess image for better OCR
+                    const processedImage = await this.preprocessImageForOCR(imageData);
+                    
+                    // Enhanced OCR settings for Vietnamese
                     const ocrOptions = {
                         tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđĐ /:.-',
-                        tessedit_pageseg_mode: '6'
+                        tessedit_pageseg_mode: '6' // Assume uniform block of text
                     };
-                    const { data: { text, confidence } } = await this.state.ocrWorker.recognize(imageData, ocrOptions);
+                    
+                    const { data: { text, confidence } } = await this.state.ocrWorker.recognize(processedImage, ocrOptions);
                     console.log('OCR Text:', text);
                     console.log('OCR Confidence:', confidence);
                     
-                    // Check for sufficient confidence and text length
-                    if (confidence > 30 && text.trim().length > 10) {
+                    // Lower threshold and better validation
+                    if (confidence > this.config.OCR_CONFIDENCE_THRESHOLD && text.trim().length > 10) {
                         const extractedData = this.parseVietnameseID(text);
-                        if (this.validateExtractedData(extractedData)) {
+                        const validation = this.validateExtractedData(extractedData);
+                        
+                        if (validation.isValid) {
+                            // Store for cross-validation
+                            this.state.crossValidationData = this.state.crossValidationData || {};
+                            this.state.crossValidationData[this.state.captureStep] = extractedData;
+                            
                             this.hideLoading();
                             return extractedData;
+                        } else {
+                            console.log('Validation failed:', validation.errors);
                         }
                     }
                 }
             } catch (error) {
                 console.error('OCR Error:', error);
             }
+            
             this.hideLoading();
-            // Fallback: Show manual input modal and wait for data
+            // Fallback: Show manual input modal
             return await this.showManualInputModal();
         }
 
-        // Parse Vietnamese ID text using regex patterns
+        // Image preprocessing for better OCR
+        async preprocessImageForOCR(imageData) {
+            return new Promise((resolve) => {
+                const img = new Image();
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                    ctx.drawImage(img, 0, 0);
+                    
+                    // Apply contrast and brightness enhancements
+                    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                    const data = imageData.data;
+                    
+                    for (let i = 0; i < data.length; i += 4) {
+                        // Enhance contrast and brightness
+                        data[i] = Math.min(255, Math.max(0, (data[i] - 128) * 1.2 + 128 + 10));
+                        data[i + 1] = Math.min(255, Math.max(0, (data[i + 1] - 128) * 1.2 + 128 + 10));
+                        data[i + 2] = Math.min(255, Math.max(0, (data[i + 2] - 128) * 1.2 + 128 + 10));
+                    }
+                    
+                    ctx.putImageData(imageData, 0, 0);
+                    resolve(canvas.toDataURL('image/jpeg', 0.95));
+                };
+                img.src = imageData;
+            });
+        }
+
+        // Enhanced Vietnamese ID parsing with better patterns
         parseVietnameseID(text) {
+            const data = {};
+            
+            // Enhanced Vietnamese patterns for accurate extraction
             const patterns = {
-                idNumber: /(?:SỐ|SO|CCCD|CMND)[:\s]*([0-9]{9,12})/i,
-                fullName: /(?:HỌ VÀ TÊN|HO VA TEN|TÊN|TEN)[:\s]*([A-ZÀÁẠẢÃÂẦẤẬẨẪĂẰẮẶẲẴÈÉẸẺẼÊỀẾỆỂỄÌÍỊỈĨÒÓỌỎÕÔỒỐỘỔỖƠỜỚỢỞỠÙÚỤỦŨƯỪỨỰỬỮỲÝỴỶỸĐĐ\s]+)/i,
-                dateOfBirth: /(?:NGÀY SINH|NGAY SINH|SINH|BORN)[:\s]*(\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4})/i
+                cccd: {
+                    idNumber: [
+                        /(?:SỐ|SO|CCCD|Số)[:\s]*([0-9]{12})/gi,
+                        /([0-9]{12})/g  // Fallback for standalone numbers
+                    ],
+                    fullName: [
+                        /(?:HỌ VÀ TÊN|HO VA TEN|Họ và tên|HỌ TÊN)[:\s]*([A-ZÀÁẠẢÃÂẦẤẬẨẪĂẰẮẶẲẴÈÉẸẺẼÊỀẾỆỂỄÌÍỊỈĨÒÓỌỎÕÔỒỐỘỔỖƠỜỚỢỞỠÙÚỤỦŨƯỪỨỰỬỮỲÝỴỶỸĐ][A-ZÀÁẠẢÃÂẦẤẬẨẪĂẰẮẶẲẴÈÉẸẺẼÊỀẾỆỂỄÌÍỊỈĨÒÓỌỎÕÔỒỐỘỔỖƠỜỚỢỞỠÙÚỤỦŨƯỪỨỰỬỮỲÝỴỶỸĐ\s]{2,50})/gi,
+                        /([A-ZÀÁẠẢÃÂẦẤẬẨẪĂẰẮẶẲẴÈÉẸẺẼÊỀẾỆỂỄÌÍỊỈĨÒÓỌỎÕÔỒỐỘỔỖƠỜỚỢỞỠÙÚỤỦŨƯỪỨỰỬỮỲÝỴỶỸĐ][A-ZÀÁẠẢÃÂẦẤẬẨẪĂẰẮẶẲẴÈÉẸẺẼÊỀẾỆỂỄÌÍỊỈĨÒÓỌỎÕÔỒỐỘỔỖƠỜỚỢỞỠÙÚỤỦŨƯỪỨỰỬỮỲÝỴỶỸĐ\s]{10,50})/g
+                    ],
+                    dateOfBirth: [
+                        /(?:NGÀY SINH|NGAY SINH|Ngày sinh)[:\s]*([0-9]{1,2}[\/\-][0-9]{1,2}[\/\-][0-9]{4})/gi,
+                        /([0-9]{1,2}[\/\-][0-9]{1,2}[\/\-][0-9]{4})/g
+                    ]
+                },
+                cmnd: {
+                    idNumber: [
+                        /(?:SỐ|SO|CMND|Số)[:\s]*([0-9]{9})/gi,
+                        /([0-9]{9})/g
+                    ],
+                    fullName: [
+                        /(?:HỌ VÀ TÊN|HO VA TEN|Họ và tên)[:\s]*([A-ZÀÁẠẢÃÂẦẤẬẨẪĂẰẮẶẲẴÈÉẸẺẼÊỀẾỆỂỄÌÍỊỈĨÒÓỌỎÕÔỒỐỘỔỖƠỜỚỢỞỠÙÚỤỦŨƯỪỨỰỬỮỲÝỴỶỸĐ][A-ZÀÁẠẢÃÂẦẤẬẨẪĂẰẮẶẲẴÈÉẸẺẼÊỀẾỆỂỄÌÍỊỈĨÒÓỌỎÕÔỒỐỘỔỖƠỜỚỢỞỠÙÚỤỦŨƯỪỨỰỬỮỲÝỴỶỸĐ\s]{2,50})/gi
+                    ],
+                    dateOfBirth: [
+                        /(?:NGÀY SINH|NGAY SINH|Ngày sinh)[:\s]*([0-9]{1,2}[\/\-][0-9]{1,2}[\/\-][0-9]{4})/gi
+                    ]
+                }
             };
 
-            const idNumberMatch = text.match(patterns.idNumber);
-            const fullNameMatch = text.match(patterns.fullName);
-            const dobMatch = text.match(patterns.dateOfBirth);
+            // Try multiple patterns for better accuracy
+            const docPatterns = patterns[this.state.selectedDocType] || patterns.cccd;
+            
+            Object.keys(docPatterns).forEach(key => {
+                const patternArray = docPatterns[key];
+                for (const pattern of patternArray) {
+                    const match = text.match(pattern);
+                    if (match && match[1]) {
+                        data[key] = this.cleanExtractedText(match[1]);
+                        break;
+                    }
+                }
+            });
 
-            return {
-                idNumber: idNumberMatch ? idNumberMatch[1].trim() : '',
-                fullName: fullNameMatch ? fullNameMatch[1].trim() : '',
-                dateOfBirth: dobMatch ? dobMatch[1].trim() : ''
-            };
+            return data;
         }
 
-        // Validate extracted data
+        // Clean extracted text
+        cleanExtractedText(text) {
+            return text
+                .replace(/\s+/g, ' ')
+                .replace(/[^\w\sàáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđĐ\/\-:.,]/g, '')
+                .trim();
+        }
+
+        // Enhanced validation with detailed error reporting
         validateExtractedData(data) {
-            if (!data.idNumber || data.idNumber.length < 9) return false;
-            if (!data.fullName || data.fullName.length < 3) return false;
-            if (!data.dateOfBirth) return false;
-            return true;
+            const errors = [];
+            
+            // Validate required fields
+            const requiredFields = ['idNumber', 'fullName', 'dateOfBirth'];
+            requiredFields.forEach(field => {
+                if (!data[field] || data[field].trim().length < 2) {
+                    errors.push(`Thiếu thông tin: ${this.getFieldName(field)}`);
+                }
+            });
+            
+            // Validate ID number format
+            if (data.idNumber) {
+                const expectedLength = this.state.selectedDocType === 'cccd' ? 12 : 9;
+                if (!/^[0-9]+$/.test(data.idNumber) || data.idNumber.length !== expectedLength) {
+                    errors.push('Số giấy tờ không đúng định dạng');
+                }
+            }
+            
+            // Validate date format and logic
+            if (data.dateOfBirth) {
+                const datePattern = /^[0-9]{1,2}[\/\-][0-9]{1,2}[\/\-][0-9]{4}$/;
+                if (!datePattern.test(data.dateOfBirth)) {
+                    errors.push('Ngày sinh không đúng định dạng');
+                } else {
+                    // Additional date logic validation
+                    const parts = data.dateOfBirth.split(/[\/\-]/);
+                    const day = parseInt(parts[0]);
+                    const month = parseInt(parts[1]);
+                    const year = parseInt(parts[2]);
+                    
+                    if (day < 1 || day > 31 || month < 1 || month > 12 || year < 1900 || year > new Date().getFullYear()) {
+                        errors.push('Ngày sinh không hợp lệ');
+                    }
+                }
+            }
+            
+            return { isValid: errors.length === 0, errors };
         }
 
-        // Show manual input modal for OCR fallback
+        // Get field display name
+        getFieldName(key) {
+            const names = {
+                idNumber: 'Số giấy tờ',
+                fullName: 'Họ và tên',
+                dateOfBirth: 'Ngày sinh'
+            };
+            return names[key] || key;
+        }
+
+        // Enhanced manual input modal with better UX
         showManualInputModal() {
             return new Promise((resolve) => {
-                const modal = document.getElementById('manualInputModal');
+                // Create modal if it doesn't exist
+                let modal = document.getElementById('manualInputModal');
                 if (!modal) {
-                    // If modal doesn't exist, use simple fallback
-                    resolve(this.simulateOCRExtraction());
-                    return;
+                    modal = this.createManualInputModal();
+                    document.body.appendChild(modal);
                 }
                 
                 modal.classList.remove('hidden');
                 
                 // Clear previous values
-                document.getElementById('manualIdNumber').value = '';
-                document.getElementById('manualFullName').value = '';
-                document.getElementById('manualDob').value = '';
+                const idInput = modal.querySelector('#manualIdNumber');
+                const nameInput = modal.querySelector('#manualFullName');
+                const dobInput = modal.querySelector('#manualDob');
                 
-                // When manual input is submitted
-                const submitBtn = document.getElementById('manualSubmitBtn');
-                const cancelBtn = document.getElementById('manualCancelBtn');
+                if (idInput) idInput.value = '';
+                if (nameInput) nameInput.value = '';
+                if (dobInput) dobInput.value = '';
+                
+                // Focus first input
+                if (idInput) idInput.focus();
+                
+                const submitBtn = modal.querySelector('#manualSubmitBtn');
+                const cancelBtn = modal.querySelector('#manualCancelBtn');
                 
                 const submitHandler = () => {
-                    // Get user-entered values
-                    const idNumber = document.getElementById('manualIdNumber').value.trim();
-                    const fullName = document.getElementById('manualFullName').value.trim();
-                    const dateOfBirth = document.getElementById('manualDob').value.trim();
+                    const idNumber = idInput?.value.trim() || '';
+                    const fullName = nameInput?.value.trim() || '';
+                    const dateOfBirth = dobInput?.value.trim() || '';
                     
-                    // Basic validation
-                    if (!idNumber || !fullName || !dateOfBirth) {
-                        alert('Vui lòng điền đầy đủ thông tin');
+                    // Enhanced validation
+                    const errors = [];
+                    if (!idNumber) errors.push('Số giấy tờ không được để trống');
+                    if (!fullName) errors.push('Họ và tên không được để trống');
+                    if (!dateOfBirth) errors.push('Ngày sinh không được để trống');
+                    
+                    if (errors.length > 0) {
+                        this.showError('Vui lòng điền đầy đủ thông tin:\n' + errors.join('\n'));
                         return;
                     }
                     
                     const enteredData = { idNumber, fullName, dateOfBirth };
                     modal.classList.add('hidden');
                     
-                    // Remove event listeners
-                    submitBtn.removeEventListener('click', submitHandler);
-                    if (cancelBtn) cancelBtn.removeEventListener('click', cancelHandler);
+                    // Cleanup event listeners
+                    submitBtn?.removeEventListener('click', submitHandler);
+                    cancelBtn?.removeEventListener('click', cancelHandler);
                     
                     resolve(enteredData);
                 };
                 
                 const cancelHandler = () => {
                     modal.classList.add('hidden');
-                    submitBtn.removeEventListener('click', submitHandler);
-                    if (cancelBtn) cancelBtn.removeEventListener('click', cancelHandler);
+                    submitBtn?.removeEventListener('click', submitHandler);
+                    cancelBtn?.removeEventListener('click', cancelHandler);
                     resolve(this.simulateOCRExtraction());
                 };
                 
-                submitBtn.addEventListener('click', submitHandler);
-                if (cancelBtn) cancelBtn.addEventListener('click', cancelHandler);
+                submitBtn?.addEventListener('click', submitHandler);
+                cancelBtn?.addEventListener('click', cancelHandler);
+                
+                // Handle Enter key
+                modal.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') {
+                        submitHandler();
+                    } else if (e.key === 'Escape') {
+                        cancelHandler();
+                    }
+                });
             });
         }
+
+        // Create manual input modal
+        createManualInputModal() {
+            const modal = document.createElement('div');
+            modal.id = 'manualInputModal';
+            modal.className = 'modal-overlay';
+            modal.innerHTML = `
+                <div class="modal-content manual-input-modal">
+                    <h2>Nhập thông tin thủ công</h2>
+                    <p class="modal-subtitle">OCR không thể đọc được thông tin từ ảnh. Vui lòng nhập thông tin thủ công.</p>
+                    
+                    <div class="input-group">
+                        <label for="manualIdNumber">Số giấy tờ:</label>
+                        <input type="text" id="manualIdNumber" placeholder="Nhập số CMND/CCCD" maxlength="12">
+                    </div>
+                    
+                    <div class="input-group">
+                        <label for="manualFullName">Họ và tên:</label>
+                        <input type="text" id="manualFullName" placeholder="Nhập họ và tên đầy đủ">
+                    </div>
+                    
+                    <div class="input-group">
+                        <label for="manualDob">Ngày sinh:</label>
+                        <input type="text" id="manualDob" placeholder="dd/mm/yyyy" maxlength="10">
+                    </div>
+                    
+                    <div class="modal-actions">
+                        <button id="manualSubmitBtn" class="btn-custom btn-main">Xác nhận</button>
 
         // Simulate OCR extraction (fallback)
         simulateOCRExtraction() {
