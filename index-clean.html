@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>eKYC - Xác Minh Danh Tính (Clean Version)</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Xác Minh Danh Tính Điện Tử</h1>
+            <div class="progress-bar">
+                <div class="progress" id="progress"></div>
+            </div>
+        </header>
+        
+        <main>
+            <!-- Step 1: Document Selection -->
+            <div id="step1" class="step active">
+                <h2>Bước 1: Chọn loại giấy tờ</h2>
+                <div class="document-types">
+                    <button class="doc-type" data-type="cccd">
+                        <img src="https://via.placeholder.com/100x70/007bff/white?text=CCCD" alt="CCCD">
+                        <span>Căn cước công dân</span>
+                    </button>
+                    <button class="doc-type" data-type="cmnd">
+                        <img src="https://via.placeholder.com/100x70/28a745/white?text=CMND" alt="CMND">
+                        <span>Chứng minh nhân dân</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Step 2: Front Image -->
+            <div id="step2" class="step">
+                <h2>Bước 2: Chụp ảnh mặt trước</h2>
+                <div class="camera-container">
+                    <video id="frontVideo" autoplay muted></video>
+                    <canvas id="frontCanvas" style="display: none;"></canvas>
+                    <button id="captureFront" class="btn-primary">Chụp ảnh</button>
+                </div>
+                <div id="frontPreview" class="preview" style="display: none;">
+                    <img id="frontImage" alt="Mặt trước">
+                    <button id="retakeFront" class="btn-secondary">Chụp lại</button>
+                    <button id="nextToBack" class="btn-primary">Tiếp tục</button>
+                </div>
+                <div id="ocrFrontResult" class="ocr-result" style="display: none;"></div>
+            </div>
+
+            <!-- Step 3: Back Image -->
+            <div id="step3" class="step">
+                <h2>Bước 3: Chụp ảnh mặt sau</h2>
+                <div class="camera-container">
+                    <video id="backVideo" autoplay muted></video>
+                    <canvas id="backCanvas" style="display: none;"></canvas>
+                    <button id="captureBack" class="btn-primary">Chụp ảnh</button>
+                </div>
+                <div id="backPreview" class="preview" style="display: none;">
+                    <img id="backImage" alt="Mặt sau">
+                    <button id="retakeBack" class="btn-secondary">Chụp lại</button>
+                    <button id="nextToFace" class="btn-primary">Tiếp tục</button>
+                </div>
+                <div id="ocrBackResult" class="ocr-result" style="display: none;"></div>
+            </div>
+
+            <!-- Step 4: Face Image -->
+            <div id="step4" class="step">
+                <h2>Bước 4: Chụp ảnh khuôn mặt</h2>
+                <div class="camera-container">
+                    <video id="faceVideo" autoplay muted></video>
+                    <canvas id="faceCanvas" style="display: none;"></canvas>
+                    <button id="captureFace" class="btn-primary">Chụp ảnh</button>
+                </div>
+                <div id="facePreview" class="preview" style="display: none;">
+                    <img id="faceImage" alt="Khuôn mặt">
+                    <button id="retakeFace" class="btn-secondary">Chụp lại</button>
+                    <button id="nextToReview" class="btn-primary">Xem lại ảnh đã chụp</button>
+                </div>
+            </div>
+
+            <!-- Step 5: Clean Review (No extracted info) -->
+            <div id="step5" class="step">
+                <h2>Bước 5: Xem lại ảnh đã chụp</h2>
+                <div id="review-section">
+                    <div class="review-item">
+                        <h3>Loại giấy tờ</h3>
+                        <p id="reviewDocType">Đang tải...</p>
+                    </div>
+                    
+                    <div class="review-images">
+                        <div class="review-image">
+                            <h4>Ảnh mặt trước</h4>
+                            <img id="reviewFront" alt="Mặt trước">
+                            <div class="quality-indicator" id="frontQuality">Đang kiểm tra...</div>
+                        </div>
+                        <div class="review-image">
+                            <h4>Ảnh mặt sau</h4>
+                            <img id="reviewBack" alt="Mặt sau">
+                            <div class="quality-indicator" id="backQuality">Đang kiểm tra...</div>
+                        </div>
+                        <div class="review-image">
+                            <h4>Ảnh khuôn mặt</h4>
+                            <img id="reviewFace" alt="Khuôn mặt">
+                            <div class="quality-indicator" id="faceQuality">Đang kiểm tra...</div>
+                        </div>
+                    </div>
+                    
+                    <div class="review-actions">
+                        <button id="editInfo" class="btn-secondary">Sửa lại từ đầu</button>
+                        <button id="submitKYC" class="btn-primary">Xác nhận và hoàn tất</button>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <div id="loading" class="loading" style="display: none;">
+            <div class="spinner"></div>
+            <p>Đang xử lý...</p>
+        </div>
+
+        <div id="error" class="error" style="display: none;">
+            <p id="errorMessage"></p>
+            <button id="closeError" class="btn-secondary">Đóng</button>
+        </div>
+
+        <!-- Manual Input Modal -->
+        <div id="manualInputModal" class="modal" style="display: none;">
+            <div class="modal-content">
+                <h3>Nhập thông tin thủ công</h3>
+                <form id="manualForm">
+                    <div class="form-group">
+                        <label>Số CMND/CCCD:</label>
+                        <input type="text" id="manualId" required placeholder="VD: 001234567890">
+                    </div>
+                    <div class="form-group">
+                        <label>Họ và tên:</label>
+                        <input type="text" id="manualName" required placeholder="VD: NGUYỄN VĂN A">
+                    </div>
+                    <div class="form-group">
+                        <label>Ngày sinh:</label>
+                        <input type="date" id="manualDob" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Quê quán:</label>
+                        <input type="text" id="manualPlaceOfOrigin" placeholder="VD: Hà Nội">
+                    </div>
+                    <div class="form-group">
+                        <label>Nơi thường trú:</label>
+                        <input type="text" id="manualPlaceOfResidence" placeholder="VD: TP. Hồ Chí Minh">
+                    </div>
+                    <div class="form-group">
+                        <label>Ngày cấp:</label>
+                        <input type="date" id="manualIssueDate">
+                    </div>
+                    <div class="form-group">
+                        <label>Nơi cấp:</label>
+                        <input type="text" id="manualIssuePlace" placeholder="VD: Công an TP. Hà Nội">
+                    </div>
+                    <div class="form-actions">
+                        <button type="button" onclick="closeManualInput()">Hủy</button>
+                        <button type="submit">Xác nhận</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4.0.2/dist/tesseract.min.js"></script>
+    <script src="script-enhanced.js"></script>
+</body>
+</html>
